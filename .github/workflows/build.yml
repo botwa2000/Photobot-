@@ -1,0 +1,65 @@
+name: Build Windows installer
+
+# Every push to main builds and tests Photobot on Windows and attaches the
+# installer to the run (Actions → this run → Artifacts).
+# Pushing a tag like v0.1.0 also publishes a GitHub Release with the installer.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build installer
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: End-to-end test of the built app
+        run: node test/e2e.js --shots --exe dist/win-unpacked/Photobot.exe
+
+      - name: Upload screenshots from the test
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: test/.tmp/shots/
+          if-no-files-found: ignore
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Photobot-Windows
+          path: |
+            dist/Photobot-Setup-*.exe
+            dist/Photobot-Portable-*.exe
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/Photobot-Setup-*.exe dist/Photobot-Portable-*.exe \
+            --title "Photobot $GITHUB_REF_NAME" --notes "Download **Photobot-Setup** and run it to install Photobot on Windows." \
+            || gh release upload "$GITHUB_REF_NAME" dist/Photobot-Setup-*.exe dist/Photobot-Portable-*.exe --clobber

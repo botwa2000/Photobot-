@@ -1,0 +1,79 @@
+{
+  "name": "photobot",
+  "productName": "Photobot",
+  "version": "0.1.0",
+  "description": "Photobot — a private photo & video gallery for Windows",
+  "author": "Photobot",
+  "private": true,
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/unit/*.test.js",
+    "test:e2e": "node test/e2e.js",
+    "dist": "electron-builder --win --x64 --publish never",
+    "dist:dir": "electron-builder --dir --publish never",
+    "cities": "node scripts/build-cities.js"
+  },
+  "dependencies": {
+    "exifr": "7.1.3"
+  },
+  "devDependencies": {
+    "all-the-cities": "3.1.0",
+    "electron": "45.2.2",
+    "electron-builder": "26.18.0",
+    "playwright": "1.63.0"
+  },
+  "build": {
+    "appId": "com.photobot.gallery",
+    "productName": "Photobot",
+    "copyright": "Photobot",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": [],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "Photobot-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Photobot-Portable-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Photobot",
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Graphics",
+      "icon": "build/icon.png"
+    }
+  }
+}

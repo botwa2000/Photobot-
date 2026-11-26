@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' pb: data:; media-src 'self' pb:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' pb:">
+<title>Photobot</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <nav class="sidebar" aria-label="Main">
+    <div class="brand"><span class="brand-mark" id="brand-mark"></span><span>Photobot</span></div>
+
+    <div class="nav-group">
+      <span class="nav-title">Library</span>
+      <button class="nav-item" data-route="library" data-base="all"><span data-icon="photos"></span><span class="grow">All photos</span><span class="count" id="count-all"></span></button>
+      <button class="nav-item" data-route="library" data-base="videos"><span data-icon="video"></span><span class="grow">Videos</span><span class="count" id="count-videos"></span></button>
+      <button class="nav-item" data-route="library" data-base="favorites"><span data-icon="heart"></span><span class="grow">Favorites</span><span class="count" id="count-favs"></span></button>
+    </div>
+
+    <div class="nav-group">
+      <span class="nav-title">Browse</span>
+      <button class="nav-item" data-route="people"><span data-icon="people"></span><span class="grow">People</span></button>
+      <button class="nav-item" data-route="places"><span data-icon="pin"></span><span class="grow">Places</span></button>
+      <button class="nav-item" data-route="tags"><span data-icon="tag"></span><span class="grow">Tags</span></button>
+    </div>
+
+    <div class="nav-group nav-folders">
+      <span class="nav-title">Folders</span>
+      <div id="nav-folders"></div>
+      <button class="nav-item small accent" id="nav-add-folder"><span data-icon="plus"></span><span>Add folder</span></button>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="scan-card" id="scan-card" hidden>
+        <div class="scan-row"><strong id="scan-title">Scanning…</strong><span id="scan-pct"></span></div>
+        <div class="bar"><div class="bar-fill" id="scan-bar"></div></div>
+        <span class="muted small" id="scan-sub"></span>
+      </div>
+      <button class="nav-item small" data-route="settings"><span data-icon="settings"></span><span>Settings</span></button>
+    </div>
+  </nav>
+
+  <main class="main">
+    <header class="toolbar" id="toolbar">
+      <div class="search" id="search">
+        <span data-icon="search"></span>
+        <div class="tokens" id="tokens"></div>
+        <label class="sr-only" for="search-input">Search</label>
+        <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search people, places, tags, dates…">
+        <kbd>Ctrl K</kbd>
+        <div class="suggest" id="suggest" role="listbox" hidden></div>
+      </div>
+      <div class="seg" role="group" aria-label="Group by" id="seg-group">
+        <button data-group="year">Years</button><button data-group="month">Months</button><button data-group="day">Days</button><button data-group="all">All</button>
+      </div>
+      <div class="seg" role="group" aria-label="Thumbnail size" id="seg-size">
+        <button data-size="list" title="List" aria-label="List"><span data-icon="list"></span></button>
+        <button data-size="small" title="Small thumbnails" aria-label="Small thumbnails"><span data-icon="gridS"></span></button>
+        <button data-size="medium" title="Medium thumbnails" aria-label="Medium thumbnails"><span data-icon="gridM"></span></button>
+        <button data-size="large" title="Large thumbnails" aria-label="Large thumbnails"><span data-icon="gridL"></span></button>
+      </div>
+      <button class="btn-outline" id="btn-filters" aria-pressed="false"><span data-icon="filter"></span>Filters<span class="badge" id="filter-count" hidden></span></button>
+    </header>
+
+    <div class="body">
+      <section class="view" id="view-library" aria-label="Photos">
+        <div class="scroller" id="scroller" tabindex="-1">
+          <div class="lib-head" id="lib-head">
+            <h1 id="lib-title">All photos</h1>
+            <span class="muted" id="lib-sub"></span>
+          </div>
+          <div class="years" id="years" hidden></div>
+          <div class="vlist" id="vlist"></div>
+          <div class="empty" id="empty" hidden></div>
+        </div>
+        <div class="scrub" id="scrub" aria-label="Jump to year"></div>
+      </section>
+
+      <section class="view page" id="view-page" hidden></section>
+
+      <aside class="filters" id="filters" aria-label="Filters" hidden></aside>
+    </div>
+
+    <div class="selbar" id="selbar" hidden>
+      <strong id="sel-count"></strong>
+      <button class="btn-ghost" id="sel-fav"><span data-icon="heart"></span>Favorite</button>
+      <button class="btn-ghost" id="sel-tag"><span data-icon="tag"></span>Add tag</button>
+      <button class="btn-ghost" id="sel-person"><span data-icon="person"></span>Add person</button>
+      <button class="btn-ghost" id="sel-delete"><span data-icon="trash"></span>Delete</button>
+      <button class="btn-ghost" id="sel-clear" aria-label="Clear selection"><span data-icon="x"></span></button>
+    </div>
+  </main>
+</div>
+
+<div class="viewer" id="viewer" hidden></div>
+
+<dialog id="ask" class="dialog">
+  <form id="ask-form" method="dialog">
+    <h2 id="ask-title"></h2>
+    <label class="field"><span id="ask-label"></span><input id="ask-input" list="ask-list" autocomplete="off"></label>
+    <datalist id="ask-list"></datalist>
+    <div class="dialog-actions"><button type="button" class="btn-outline" id="ask-cancel">Cancel</button><button type="submit" class="btn-primary" id="ask-ok">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="confirm" class="dialog">
+  <h2 id="confirm-title"></h2>
+  <p id="confirm-msg" class="muted"></p>
+  <div class="dialog-actions"><button type="button" class="btn-outline" id="confirm-cancel">Cancel</button><button type="button" class="btn-primary" id="confirm-ok">OK</button></div>
+</dialog>
+
+<div class="drop-hint" id="drop-hint" hidden><div>Drop folders to add them to Photobot</div></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
