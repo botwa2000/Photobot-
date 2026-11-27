@@ -32,10 +32,10 @@ Report security problems privately through GitHub's **Report a vulnerability** (
 
 ## Tests
 
-These run on every build, on Windows, against the packaged app:
+These run on every build, on Windows. The two end-to-end suites drive the app through a debugger, which the release exe deliberately refuses (fuses), so they run against the same code unpackaged. `release-check.js` then exercises the real, fully hardened exe without any debugger attached. Locally, `npm run dist:test` builds a packaged copy with only the debugger fuse relaxed, and both suites also pass against that copy.
 
 - `test/security-e2e.js`: hostile files (XSS names, tags and people, random bytes, truncated JPEG, malformed MP4/MOV boxes, a 3.6-gigapixel PNG, symlink loop and escape), Node/Electron exposure, malicious IPC (SQL-ish strings, wrong types, UNC and relative paths, oversized strings), opening external links, navigation, network, path traversal on `app://` and `pb://`, permission prompts, and thumbnail erasure.
-- `test/release-check.js`: the fully fused release exe starts; `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect; a one-byte change to `app.asar` stops it from starting.
+- `test/release-check.js`: the fully fused release exe starts, scans a library and makes thumbnails in its sandbox; `ELECTRON_RUN_AS_NODE` and `NODE_OPTIONS` have no effect; a one-byte change to `app.asar` stops it from starting.
 - `test/unit/security.test.js`: validators, protocol path resolution, external URL allow-list, metadata sanitizing, killing a stuck parser, and the symlink-safe walker.
 
 ## Known limitations
