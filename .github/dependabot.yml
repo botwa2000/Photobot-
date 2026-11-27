@@ -1,0 +1,18 @@
+# Weekly update PRs for npm packages (Electron security releases!) and pinned GitHub Actions.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      electron:
+        patterns: ["electron", "electron-builder", "@electron/*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

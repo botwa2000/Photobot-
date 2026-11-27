@@ -4,7 +4,8 @@
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { kindOf, extOf, readMetadata } = require('./metadata');
+const { kindOf, extOf, fallbackDate } = require('./metadata');
+const { MetaPool } = require('./meta-pool');
 const { reverseGeocode } = require('./geo');
 
 const SKIP_DIRS = new Set(['$recycle.bin', 'system volume information', 'node_modules', '@eadir', '.thumbnails',
@@ -31,6 +32,7 @@ class Scanner extends EventEmitter {
     this.pending = new Map();
     this.scanCounter = Date.now() % 1e9;
     this.progress = new Map();
+    this.meta = new MetaPool(2);
   }
 
   isWanted(file, size) {
@@ -170,12 +172,9 @@ class Scanner extends EventEmitter {
   async buildRecord(folderId, f) {
     const kind = this.isWanted(f.path, f.size);
     if (!kind) return null;
-    let meta;
-    try {
-      meta = await readMetadata(f.path, f.stat);
-    } catch {
-      meta = { taken: null, keywords: [], people: [] };
-    }
+    // Parsed in a resource-limited worker thread (see meta-pool.js).
+    const meta = await this.meta.read(f.path, f.stat);
+    if (!meta.taken) Object.assign(meta, fallbackDate(f.path, f.stat));
     let city = null;
     let country = null;
     if (meta.lat != null && meta.lon != null) {
@@ -219,6 +218,8 @@ class Scanner extends EventEmitter {
       const w = fs.watch(folder.path, { recursive: true }, (_evt, rel) => {
         if (!rel) return;
         const full = path.join(folder.path, rel.toString());
+        const back = path.relative(folder.path, full);
+        if (back.startsWith('..') || path.isAbsolute(back)) return;
         let set = this.pending.get(folderId);
         if (!set) this.pending.set(folderId, (set = new Set()));
         set.add(full);
@@ -256,6 +257,8 @@ class Scanner extends EventEmitter {
         removed.push(p);
         continue;
       }
+      const lst = await fs.promises.lstat(p).catch(() => null);
+      if (!lst || lst.isSymbolicLink()) continue;
       if (st.isDirectory()) {
         // A new or renamed folder: scan its contents.
         for await (const f of walk(p)) {
@@ -306,11 +309,27 @@ async function isDir(p) {
   }
 }
 
-/** Recursively yields media files under `root`, skipping hidden/system folders. */
+const MAX_DEPTH = 64;
+
+/**
+ * Recursively yields media files under `root`, skipping hidden/system folders.
+ * Symbolic links and NTFS junctions are never followed (they can point outside the
+ * library or form endless loops, e.g. the "GhostTree" trick), depth is capped, and
+ * each real directory is visited once.
+ */
 async function* walk(root) {
-  const stack = [root];
+  const stack = [{ dir: root, depth: 0 }];
+  const seen = new Set();
   while (stack.length) {
-    const dir = stack.pop();
+    const { dir, depth } = stack.pop();
+    try {
+      const st = await fs.promises.stat(dir, { bigint: true });
+      const key = `${st.dev}:${st.ino}`;
+      if (st.ino !== 0n && seen.has(key)) continue;
+      seen.add(key);
+    } catch {
+      continue;
+    }
     let handle;
     try {
       handle = await fs.promises.opendir(dir);
@@ -318,13 +337,14 @@ async function* walk(root) {
       continue;
     }
     for await (const ent of handle) {
+      if (ent.isSymbolicLink()) continue;
       const full = path.join(dir, ent.name);
       if (ent.isDirectory()) {
-        if (!shouldSkipDir(ent.name)) stack.push(full);
+        if (!shouldSkipDir(ent.name) && depth < MAX_DEPTH) stack.push({ dir: full, depth: depth + 1 });
       } else if (ent.isFile() && kindOf(ent.name)) {
         try {
-          const st = await fs.promises.stat(full);
-          yield fileInfo(full, st);
+          const st = await fs.promises.lstat(full);
+          if (st.isFile()) yield fileInfo(full, st);
         } catch {
           /* vanished or no permission */
         }

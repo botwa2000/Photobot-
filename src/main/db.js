@@ -358,7 +358,7 @@ class PhotoDb {
   }
 
   itemPath(id) {
-    return this.st('SELECT path, ext, kind, mtime, size FROM items WHERE id = ?').get(id);
+    return this.st('SELECT id, path, ext, kind, mtime, size, width, height FROM items WHERE id = ?').get(id);
   }
 
   tags() {
@@ -415,6 +415,10 @@ class PhotoDb {
       if (n) out.unshift({ type: 'year', label: q, value: q, count: n });
     }
     return out.slice(0, 14);
+  }
+
+  allIds() {
+    return new Set(this.st('SELECT id FROM items').all().map((r) => r.id));
   }
 
   stats() {

@@ -205,7 +205,9 @@ export async function renderSettings(el) {
       <div class="info-card"><h2>Library</h2>
         <p>${num(stats.photos)} photos · ${num(stats.videos)} videos · ${num(stats.favorites)} favorites</p>
         <p class="small" style="word-break:break-all">Index and thumbnails are stored in ${esc(info.dataDir)}</p>
-        <div><button class="btn-outline btn-sm" data-open-data>${icon('folder', 14)}Open data folder</button></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-outline btn-sm" data-open-data>${icon('folder', 14)}Open data folder</button>
+          <button class="btn-outline btn-sm" data-clear-cache>${icon('trash', 14)}Clear thumbnail cache</button></div>
+        <p class="small">Thumbnails of photos you delete or remove from Photobot are erased automatically.</p></div>
       <div class="info-card"><h2>About Photobot</h2>
         <p>Version ${esc(info.version)}</p>
         <p class="small">Keyboard: ← → next/previous · F favorite · R rotate · I info · S slideshow · Del delete · Ctrl+K search · Ctrl+A select all · Esc close</p>
@@ -219,6 +221,10 @@ export async function renderSettings(el) {
       return renderSettings(el);
     }
     if (e.target.closest('[data-open-data]')) api.openDataDir();
+    if (e.target.closest('[data-clear-cache]')) {
+      await api.clearCache();
+      toast('Thumbnail cache cleared');
+    }
   };
   el.onkeydown = null;
 }

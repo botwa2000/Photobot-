@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('photobot', {
   setSettings: invoke('settings:set'),
   info: invoke('app:info'),
   openDataDir: invoke('app:openDataDir'),
+  clearCache: invoke('app:clearCache'),
+  openUrl: invoke('app:openUrl'),
   pathForFile: (file) => webUtils.getPathForFile(file),
   on: (channel, fn) => {
     if (!['scan:progress', 'library:changed'].includes(channel)) return () => {};

@@ -40,6 +40,12 @@ export class Grid {
       else this.schedule();
     }).observe(scroller);
     host.addEventListener('click', (e) => this.onClick(e));
+    // Originals shown as a fallback that can't be decoded become a neutral placeholder.
+    host.addEventListener('error', (e) => {
+      const t = e.target;
+      if (t instanceof HTMLImageElement && t.dataset.orig) t.outerHTML = `<span class="ph">${icon('photos', 28)}</span>`;
+      else if (t instanceof HTMLVideoElement) t.outerHTML = `<span class="ph">${icon('video', 28)}</span>`;
+    }, true);
     host.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.target.dataset.i) this.cb.open(+e.target.dataset.i);
     });
@@ -191,6 +197,11 @@ export class Grid {
 
   fallback(it) {
     if (it.kind === 'video') return `<video src="${fileUrl(it.id)}#t=1" muted preload="metadata" tabindex="-1"></video>`;
+    // No thumbnail: let this sandboxed window decode a browser-safe original, unless it's huge.
+    const small = !it.width || !it.height || it.width * it.height <= 40e6;
+    if (small && /^(jpe?g|jpe|jfif|png|webp|gif|bmp|avif)$/.test(it.ext)) {
+      return `<img src="${fileUrl(it.id)}" alt="" loading="lazy" decoding="async" draggable="false" class="loaded" data-orig="1">`;
+    }
     return `<span class="ph">${icon('photos', 28)}</span>`;
   }
 
@@ -199,6 +210,10 @@ export class Grid {
       if (img.complete && img.naturalWidth) img.classList.add('loaded');
       img.addEventListener('load', () => img.classList.add('loaded'), { once: true });
       img.addEventListener('error', () => {
+        if (img.dataset.orig) {
+          img.outerHTML = `<span class="ph">${icon('photos', 28)}</span>`;
+          return;
+        }
         const id = +img.dataset.id;
         failedThumbs.add(id);
         const it = this.items[this.index.get(id)];

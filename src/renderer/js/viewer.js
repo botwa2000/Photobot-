@@ -154,7 +154,7 @@ export class Viewer {
         ${camBits.length ? `<span class="dim">${esc(camBits.join(' · '))}</span>` : ''}${it.lens ? `<span class="dim">${esc(it.lens)}</span>` : ''}</section>
       <section class="v-sec"><h3>Place</h3>
         ${place ? `<button class="v-chip link" data-filter="place" data-city="${esc(it.city || '')}" data-country="${esc(it.country || '')}">${icon('pin', 14)}${esc(place)}</button>` : '<span class="dim">No location saved in this file.</span>'}
-        ${coords ? `<span class="dim">${coords} · <a href="https://www.openstreetmap.org/?mlat=${it.lat}&mlon=${it.lon}#map=15/${it.lat}/${it.lon}" target="_blank" rel="noreferrer">Open map</a></span>` : ''}</section>
+        ${coords ? `<span class="dim">${coords} · <a href="https://www.openstreetmap.org/?mlat=${+it.lat}&mlon=${+it.lon}#map=15/${+it.lat}/${+it.lon}" target="_blank" rel="noreferrer" title="Opens OpenStreetMap in your browser — this sends the location online">Open map (online)</a></span>` : ''}</section>
       <section class="v-sec"><h3>People</h3>
         <div class="v-chips">${it.people.map((p) => chip('person', p)).join('') || '<span class="dim">Nobody tagged yet.</span>'}</div>
         <label class="v-add">${icon('plus', 14)}<span class="sr-only">Add person</span><input id="v-add-person" list="v-people" placeholder="Add a person…"></label>

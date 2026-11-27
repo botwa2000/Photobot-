@@ -28,9 +28,15 @@ On first start Photobot adds **`D:\Pictures`** automatically (if that folder exi
 
 Supported files: JPG, PNG, HEIC/HEIF, AVIF, WEBP, GIF, BMP, TIFF, RAW (DNG, CR2, CR3, NEF, ARW, ORF, RW2, RAF…), MP4, MOV, M4V, AVI, MKV, WMV, 3GP, MTS. HEIC and RAW thumbnails come from Windows itself. If they don't show, install the free **HEIF Image Extensions** and **Raw Image Extension** from the Microsoft Store.
 
+### Security
+
+Photobot treats every file it scans as potentially hostile. Images are decoded only in a sandboxed process, and metadata is parsed in memory-limited workers. The window has no Node.js access and a strict Content-Security-Policy. All network access is blocked, and the shipped exe is locked with Electron fuses. Every build runs a suite of attack tests on Windows. See [SECURITY.md](SECURITY.md) for the full threat model.
+
+To check a download before you run it, compare its hash with `SHA256SUMS.txt` from the release (in PowerShell: `Get-FileHash .\Photobot-Setup-*.exe`).
+
 ### Privacy
 
-Photobot never uploads anything and never changes, moves or renames your files. Its index (a SQLite database) and thumbnail cache live in `%APPDATA%\Photobot`. Uninstalling keeps them. Delete that folder to remove them.
+Photobot never uploads anything and never changes, moves or renames your files. Its index (a SQLite database) and thumbnail cache live in `%APPDATA%\Photobot`. Thumbnails of deleted or removed photos are erased automatically, and **Settings → Clear thumbnail cache** empties the cache. Uninstalling keeps the data folder. Delete it to remove everything.
 
 ### Keyboard
 
@@ -44,7 +50,9 @@ Requires Node.js 22+.
 npm install
 npm start            # run the app
 npm test             # unit tests
-node test/e2e.js     # end-to-end test (drives the real app; on Linux use xvfb-run)
+node test/e2e.js           # end-to-end test (drives the real app; on Linux use xvfb-run)
+node test/security-e2e.js  # attack tests: hostile files, XSS, IPC, navigation, network
+npm run dist:test          # packaged test build (debugger fuse on) for the tests above
 npm run dist         # build the Windows installer into dist/ (on Windows)
 ```
 

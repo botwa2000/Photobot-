@@ -59,14 +59,31 @@ function cleanText(v) {
   return s || null;
 }
 
-function asList(v) {
+/**
+ * exifr returns XMP text with XML escapes left in (e.g. "&lt;"). Decode only the
+ * predefined and numeric entities; external/custom entities are never expanded (no XXE).
+ */
+function decodeXml(str) {
+  return str.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|lt|gt|amp|quot|apos);/gi, (m, e) => {
+    const k = e.toLowerCase();
+    if (k[0] === '#') {
+      const cp = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+      return cp > 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : '';
+    }
+    return { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" }[k];
+  });
+}
+
+function asList(v, split = true) {
   if (v == null) return [];
-  if (Array.isArray(v)) return v.flatMap(asList);
+  if (Array.isArray(v)) return v.flatMap((x) => asList(x, false));
   if (typeof v === 'object') {
-    if ('value' in v) return asList(v.value);
+    if ('value' in v) return asList(v.value, split);
     return [];
   }
-  return String(v).split(/[;,]/).map((s) => s.trim()).filter(Boolean);
+  const s = decodeXml(String(v));
+  // A single string may hold several keywords ("a; b" from Windows XPKeywords).
+  return (split ? s.split(/[;,]/) : [s]).map((x) => x.trim()).filter(Boolean);
 }
 
 /** Walk an exifr output object and collect people names from face-region metadata. */
@@ -85,13 +102,13 @@ function findPeople(meta) {
     const type = node.Type || node.type;
     const name = node.PersonDisplayName || ((type === 'Face' || type === undefined) && (node.Name || node.name));
     if (typeof name === 'string' && name.trim() && (node.Area || node.Rectangle || node.Type || node.PersonDisplayName)) {
-      names.add(name.trim());
+      names.add(decodeXml(name).trim());
     }
     for (const k of Object.keys(node)) visit(node[k], depth + 1);
   };
   visit(meta.RegionInfo || meta.Regions || meta.regions, 0);
   if (meta.mwgRegions) visit(meta.mwgRegions, 0);
-  for (const p of asList(meta.PersonInImage)) names.add(p);
+  for (const p of asList(meta.PersonInImage, false)) names.add(p);
   return [...names].filter((n) => n.length <= 80);
 }
 
@@ -128,6 +145,7 @@ async function readPhotoMeta(file) {
   const brand = make ? make.split(' ')[0] : null;
   if (brand && model && !model.toLowerCase().startsWith(brand.toLowerCase())) model = `${brand} ${model}`;
   const xpTitle = cleanText(meta.XPTitle);
+  const xmpTitle = meta.title?.value ?? meta.title;
   return {
     taken,
     takenSource: taken ? 'exif' : null,
@@ -142,7 +160,7 @@ async function readPhotoMeta(file) {
     height: meta.ExifImageHeight || meta.ImageHeight || meta.PixelYDimension || null,
     orientation: Number.isFinite(meta.Orientation) ? meta.Orientation : null,
     rating: Number.isFinite(meta.Rating) ? meta.Rating : null,
-    title: xpTitle || cleanText(meta.title?.value ?? meta.title),
+    title: xpTitle || (typeof xmpTitle === 'string' ? cleanText(decodeXml(xmpTitle)) : null),
     keywords: findKeywords(meta),
     people: findPeople(meta),
   };
@@ -158,7 +176,8 @@ async function readBytes(fh, pos, len) {
 
 async function* boxes(fh, start, end) {
   let pos = start;
-  while (pos + 8 <= end) {
+  let count = 0;
+  while (pos + 8 <= end && count++ < 4096) {
     const h = await readBytes(fh, pos, 16);
     if (h.length < 8) return;
     let size = h.readUInt32BE(0);
@@ -199,7 +218,7 @@ async function readVideoMeta(file) {
     for await (const box of boxes(fh, 0, size)) {
       if (box.type !== 'moov') continue;
       const moovLen = box.end - box.dataStart;
-      if (moovLen > 64 * 1024 * 1024) break;
+      if (moovLen > 16 * 1024 * 1024) break; // real moov boxes are far smaller
       const moov = await readBytes(fh, box.dataStart, moovLen);
       parseMoov(moov, out);
       break;
@@ -287,27 +306,52 @@ function findLocation(buf, start, end, out) {
   if (loc) Object.assign(out, loc);
 }
 
+/** Date for files without camera/video date: from the file name, else the file's own times. */
+function fallbackDate(file, stat) {
+  const fromName = dateFromFilename(file);
+  if (fromName) return { taken: fromName, takenSource: 'filename' };
+  const ms = stat.birthtimeMs && stat.birthtimeMs < stat.mtimeMs ? stat.birthtimeMs : stat.mtimeMs;
+  return { taken: toLocalStamp(new Date(ms)) || '1970-01-01T00:00:00', takenSource: 'file' };
+}
+
+const clampStr = (s, max) => (typeof s === 'string' ? s.slice(0, max) : null);
+const num = (x, lo, hi) => (Number.isFinite(x) && x >= lo && x <= hi ? x : null);
+
+/**
+ * Metadata comes from untrusted files: keep only expected types and sane sizes so a
+ * crafted file can't bloat the index or smuggle odd values into the UI.
+ */
+function sanitize(m) {
+  return {
+    taken: typeof m.taken === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(m.taken) ? m.taken : null,
+    takenSource: ['exif', 'video', 'filename', 'file'].includes(m.takenSource) ? m.takenSource : null,
+    lat: num(m.lat, -90, 90),
+    lon: num(m.lon, -180, 180),
+    camera: clampStr(m.camera, 100),
+    lens: clampStr(m.lens, 100),
+    iso: num(m.iso, 1, 1e7),
+    fnum: num(m.fnum, 0.1, 1000),
+    exposure: num(m.exposure, 1e-7, 1e5),
+    focal: num(m.focal, 0.1, 1e5),
+    width: Number.isSafeInteger(m.width) && m.width > 0 && m.width < 1e6 ? m.width : null,
+    height: Number.isSafeInteger(m.height) && m.height > 0 && m.height < 1e6 ? m.height : null,
+    duration: num(m.duration, 0, 1e7),
+    rating: num(m.rating, -1, 5),
+    title: clampStr(m.title, 300),
+    keywords: (Array.isArray(m.keywords) ? m.keywords : []).filter((k) => typeof k === 'string' && k.length <= 60).slice(0, 200),
+    people: (Array.isArray(m.people) ? m.people : []).filter((k) => typeof k === 'string' && k.length <= 80).slice(0, 100),
+  };
+}
+
 /** Full metadata for one file, with filename and file-time fallbacks for the date. */
 async function readMetadata(file, stat) {
   const kind = kindOf(file);
-  const meta = kind === 'video' ? await readVideoMeta(file) : await readPhotoMeta(file);
-  if (!meta.taken) {
-    const fromName = dateFromFilename(file);
-    if (fromName) {
-      meta.taken = fromName;
-      meta.takenSource = 'filename';
-    } else {
-      const t = stat.birthtimeMs && stat.birthtimeMs < stat.mtimeMs ? stat.birthtime : stat.mtime;
-      meta.taken = toLocalStamp(t);
-      meta.takenSource = 'file';
-    }
-  }
-  meta.keywords = meta.keywords || [];
-  meta.people = meta.people || [];
+  const meta = sanitize(kind === 'video' ? await readVideoMeta(file) : await readPhotoMeta(file));
+  if (!meta.taken) Object.assign(meta, fallbackDate(file, stat));
   return meta;
 }
 
 module.exports = {
   PHOTO_EXT, VIDEO_EXT, RAW_EXT, BROWSER_IMAGE, BROWSER_VIDEO,
-  extOf, kindOf, readMetadata, readPhotoMeta, readVideoMeta, dateFromFilename, toLocalStamp, parseIso6709, findPeople, findKeywords,
+  extOf, kindOf, readMetadata, fallbackDate, sanitize, readPhotoMeta, readVideoMeta, dateFromFilename, toLocalStamp, parseIso6709, findPeople, findKeywords,
 };

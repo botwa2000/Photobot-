@@ -1,8 +1,12 @@
 name: Build Windows installer
 
-# Every push to main builds and tests Photobot on Windows and attaches the
-# installer to the run (Actions → this run → Artifacts).
-# Pushing a tag like v0.1.0 also publishes a GitHub Release with the installer.
+# Every push to main builds and tests Photobot on Windows and attaches the installer
+# to the run (Actions → this run → Artifacts). Pushing a tag like v0.2.0 also publishes a
+# GitHub Release with the installer, SHA-256 checksums and a signed build-provenance attestation.
+#
+# Supply-chain hardening: third-party actions are pinned to full commit SHAs, the default
+# token is read-only, credentials are not persisted, no dependency cache is shared between
+# runs, and `npm ci` installs exactly what package-lock.json lists.
 on:
   push:
     branches: [main]
@@ -11,55 +15,108 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install
+      - name: Install (exact lockfile)
         run: npm ci
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Unit tests
         run: npm test
 
-      - name: Build installer
+      - name: Build test copy (same app, debugger fuse on so the tests can drive it)
+        run: npm run dist:test
+
+      - name: End-to-end tests
+        run: node test/e2e.js --shots --exe dist-test/win-unpacked/Photobot.exe
+
+      - name: Security tests (hostile files, XSS, IPC, navigation, network, permissions)
+        run: node test/security-e2e.js --exe dist-test/win-unpacked/Photobot.exe
+
+      - name: Build release installer (all security fuses on)
         run: npx electron-builder --win --x64 --publish never
 
-      - name: End-to-end test of the built app
-        run: node test/e2e.js --shots --exe dist/win-unpacked/Photobot.exe
+      - name: Verify security fuses of the release build
+        shell: bash
+        run: |
+          npx @electron/fuses read --app dist/win-unpacked/Photobot.exe | tee fuses.txt
+          for f in "RunAsNode is Disabled" "EnableNodeOptionsEnvironmentVariable is Disabled" \
+                   "EnableNodeCliInspectArguments is Disabled" "EnableEmbeddedAsarIntegrityValidation is Enabled" \
+                   "OnlyLoadAppFromAsar is Enabled" "GrantFileProtocolExtraPrivileges is Disabled"; do
+            grep -q "$f" fuses.txt || { echo "::error::fuse check failed: $f"; exit 1; }
+          done
 
-      - name: Upload screenshots from the test
+      - name: Release build checks (starts; can't run as Node; tampered app.asar refused)
+        run: node test/release-check.js --exe dist/win-unpacked/Photobot.exe
+
+      - name: Checksums
+        shell: bash
+        run: cd dist && sha256sum Photobot-Setup-*.exe Photobot-Portable-*.exe | tee SHA256SUMS.txt
+
+      - name: Upload screenshots from the tests
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-screenshots
           path: test/.tmp/shots/
           if-no-files-found: ignore
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Photobot-Windows
           path: |
             dist/Photobot-Setup-*.exe
             dist/Photobot-Portable-*.exe
+            dist/SHA256SUMS.txt
           if-no-files-found: error
 
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: Photobot-Windows
+          path: dist
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/Photobot-*.exe'
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/Photobot-Setup-*.exe dist/Photobot-Portable-*.exe \
-            --title "Photobot $GITHUB_REF_NAME" --notes "Download **Photobot-Setup** and run it to install Photobot on Windows." \
-            || gh release upload "$GITHUB_REF_NAME" dist/Photobot-Setup-*.exe dist/Photobot-Portable-*.exe --clobber
+          gh release create "$TAG" dist/Photobot-*.exe dist/SHA256SUMS.txt --repo "$REPO" \
+            --title "Photobot $TAG" \
+            --notes "Download **Photobot-Setup** and run it to install Photobot on Windows. Verify with SHA256SUMS.txt or \`gh attestation verify <file> --repo $REPO\`."
