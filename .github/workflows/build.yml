@@ -48,7 +48,19 @@ jobs:
       - name: Build test copy (same app, debugger fuse on so the tests can drive it)
         run: npm run dist:test
 
+      - name: "Diagnostics: does the packaged test build start on its own?"
+        continue-on-error: true
+        run: node test/release-check.js --exe dist-test/win-unpacked/Photobot.exe
+
+      - name: "Diagnostics: e2e against the unpackaged source"
+        continue-on-error: true
+        timeout-minutes: 6
+        run: node test/e2e.js
+
       - name: End-to-end tests
+        timeout-minutes: 8
+        env:
+          DEBUG: pw:browser
         run: node test/e2e.js --shots --exe dist-test/win-unpacked/Photobot.exe
 
       - name: Security tests (hostile files, XSS, IPC, navigation, network, permissions)
